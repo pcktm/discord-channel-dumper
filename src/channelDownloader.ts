@@ -11,6 +11,8 @@ import {attachmentQueue} from './attachmentDownloader';
 
 const QUEUE_NAME = 'channels';
 type JobType = {
+  lastMessageId?: string;
+  index: number;
   channelId: string;
 };
 
@@ -21,7 +23,7 @@ export const channelQueue = new Queue<JobType>(QUEUE_NAME, {
   },
 });
 
-export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>) => {
+export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>): Promise<string> => {
   const channel = await client.channels.fetch(job.data.channelId);
   if (!channel) {
     consola.fatal(`Channel ${job.data.channelId} not found`);
@@ -34,10 +36,12 @@ export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>) =>
 
   const dir = getChannelDir(channel);
   await fs.ensureDir(dir);
-  const writeStream = fs.createWriteStream(path.join(dir, 'messages.ndjson'));
+  const filename = path.join(dir, `messages-${job.data.index}.ndjson`);
+  const writeStream = fs.createWriteStream(filename);
   let count = 0;
+  let lastMessageId = null;
 
-  for await (const messages of messagesInChannel(channel as TextChannel)) {
+  for await (const messages of messagesInChannel(channel as TextChannel, job.data.lastMessageId ?? null)) {
     const mapped = mapMessages(messages);
     for await (const message of mapped) {
       writeStream.write(JSON.stringify(message));
@@ -45,11 +49,27 @@ export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>) =>
     }
 
     count += messages.size;
+    lastMessageId = messages.lastKey();
     job.updateProgress(count);
   }
 
+  if (lastMessageId) {
+    await channelQueue.add(job.data.channelId, {
+      channelId: job.data.channelId,
+      index: job.data.index + 1,
+      lastMessageId,
+    });
+  }
+
   writeStream.end();
-  consola.success(`Done writing ${channel.id}, dumped ${count} messages`);
+  consola.success(`Done writing ${channel.id} part ${job.data.index}, dumped ${count} messages`);
+  if (count === 0) {
+    consola.warn('No messages dumped, deleting file');
+    await fs.remove(filename);
+    return;
+  }
+  // eslint-disable-next-line consistent-return
+  return filename;
 }, {
   connection: {
     host: 'localhost',
