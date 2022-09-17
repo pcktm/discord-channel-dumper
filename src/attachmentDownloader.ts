@@ -29,7 +29,7 @@ export const attachmentWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>)
     consola.warn(`Attachment ${job.data.url} is too big, skipping`);
     return false;
   }
-  const dir = path.join(process.cwd(), 'dump', 'channels', `${job.data.channelName}-${job.data.channelId}`);
+  const dir = path.join(process.cwd(), 'dump', `${job.data.channelName}-${job.data.channelId}`, 'attachments');
   await fs.ensureDir(dir);
   await downloadFile(job.data.url, path.join(dir, job.data.targetFilename), (progress) => {
     const percent = Math.round((progress / job.data.size) * 100);

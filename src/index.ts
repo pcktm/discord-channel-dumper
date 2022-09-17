@@ -30,7 +30,7 @@ app.get('/addChannel', (req, res) => {
     return;
   }
   const channelId = String(id);
-  channelQueue.add(channelId, {channelId, index: 0});
+  channelQueue.add(`${channelId}, part 0`, {channelId, index: 0});
   res.send(`Added ${channelId} to queue`);
 });
 

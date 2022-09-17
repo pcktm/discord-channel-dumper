@@ -30,5 +30,5 @@ export function getFilenameFromAttachment(attachment: Attachment) {
 }
 
 export function getChannelDir(channel: TextChannel) {
-  return path.join(process.cwd(), 'dump', 'channels', `${channel.name}-${channel.id}`);
+  return path.join(process.cwd(), 'dump', `${channel.name}-${channel.id}`);
 }

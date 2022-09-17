@@ -4,7 +4,9 @@ import {
 } from 'discord.js';
 import path from 'path';
 import fs from 'fs-extra';
-import {Queue, Worker, Job} from 'bullmq';
+import {
+  Queue, Worker, Job, QueueScheduler,
+} from 'bullmq';
 import client from './client';
 import {messagesInChannel, getChannelDir, getFilenameFromAttachment} from './utils';
 import {attachmentQueue} from './attachmentDownloader';
@@ -29,16 +31,17 @@ export const channelQueue = new Queue<JobType>(QUEUE_NAME, {
     },
   },
 });
+const channelQueueScheduler = new QueueScheduler(QUEUE_NAME);
 
-export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>): Promise<string> => {
+export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>) => {
   const channel = await client.channels.fetch(job.data.channelId);
   if (!channel) {
     consola.fatal(`Channel ${job.data.channelId} not found`);
-    return;
+    throw new Error(`Channel ${job.data.channelId} not found`);
   }
   if (channel.type !== ChannelType.GuildText) {
     consola.fatal(`Channel ${job.data.channelId} is not a text channel!`);
-    return;
+    throw new Error(`Channel ${job.data.channelId} is not a text channel!`);
   }
 
   const dir = getChannelDir(channel);
@@ -47,8 +50,9 @@ export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>): P
   const writeStream = fs.createWriteStream(filename);
   let count = 0;
   let lastMessageId = null;
+  const limit = 1000;
 
-  for await (const messages of messagesInChannel(channel as TextChannel, job.data.lastMessageId ?? null)) {
+  for await (const messages of messagesInChannel(channel as TextChannel, job.data.lastMessageId ?? null, limit)) {
     const mapped = mapMessages(messages);
     for await (const message of mapped) {
       writeStream.write(JSON.stringify(message));
@@ -57,25 +61,26 @@ export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>): P
 
     count += messages.size;
     lastMessageId = messages.lastKey();
-    job.updateProgress(count);
+    job.updateProgress(Math.round((count / limit) * 100));
   }
+  writeStream.end();
 
   if (lastMessageId) {
-    await channelQueue.add(job.data.channelId, {
+    await channelQueue.add(`${channel.name}, part ${job.data.index + 1}`, {
       channelId: job.data.channelId,
       index: job.data.index + 1,
       lastMessageId,
     });
   }
 
-  writeStream.end();
-  consola.success(`Done writing ${channel.id} part ${job.data.index}, dumped ${count} messages`);
+  consola.info(`Done writing ${channel.id} part ${job.data.index}, dumped ${count} messages`);
+  job.updateProgress(100);
   if (count === 0) {
-    consola.warn('No messages dumped, deleting file');
+    consola.success(`No new messages dumped, might be done with ${channel.name}<${channel.id}>`);
     await fs.remove(filename);
-    return;
+    return dir;
   }
-  // eslint-disable-next-line consistent-return
+
   return filename;
 }, {
   concurrency: 4,
@@ -106,9 +111,9 @@ export function mapMessages(messages: Collection<string, Message<true>>) {
   )).flat());
   return filtered.map((m) => ({
     id: m.id,
-    author: m.author.id,
+    author: `${m.author.username}#${m.author.discriminator}`,
     content: m.cleanContent,
     attachments: m.attachments.map((a) => getFilenameFromAttachment(a)),
-    timestamp: m.createdTimestamp,
+    timestamp: new Date(m.createdTimestamp).toISOString(),
   }));
 }

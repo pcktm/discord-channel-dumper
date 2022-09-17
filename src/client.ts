@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
-import {ChannelType, Client, GatewayIntentBits} from 'discord.js';
+import {
+  ActivityType, ChannelType, Client, GatewayIntentBits,
+} from 'discord.js';
 
 const client = new Client({
   intents: [
@@ -9,6 +11,14 @@ const client = new Client({
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.MessageContent,
   ],
+  presence: {
+    activities: [
+      {
+        name: 'your messages',
+        type: ActivityType.Watching,
+      },
+    ],
+  },
 });
 
 export default client;
