@@ -21,6 +21,13 @@ export const channelQueue = new Queue<JobType>(QUEUE_NAME, {
     host: 'localhost',
     port: 6379,
   },
+  defaultJobOptions: {
+    attempts: 6,
+    backoff: {
+      type: 'exponential',
+      delay: 2000,
+    },
+  },
 });
 
 export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>): Promise<string> => {
@@ -71,6 +78,7 @@ export const channelWorker = new Worker(QUEUE_NAME, async (job: Job<JobType>): P
   // eslint-disable-next-line consistent-return
   return filename;
 }, {
+  concurrency: 4,
   connection: {
     host: 'localhost',
     port: 6379,
